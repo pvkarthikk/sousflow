@@ -1,0 +1,34 @@
+task1:
+  cmd: task.exe
+  args: --run 10 
+
+task2:
+  cmd: task.exe
+  args: --run 15
+
+task3:
+  cmd: task.exe
+  args: --run 5
+
+task4:
+  cmd: task.exe
+  args: --run 8
+
+task5:
+  cmd: task.exe
+  args: --run 7
+
+task6:
+  cmd: task.exe
+  args: --run 19
+# task1 ->  task2
+#           task3
+group1:
+  - task1
+  - [task2, task3]
+# task1 ->  task2 ->  task4 -> task6
+#      |    task3     task5
+group2:
+  - group1
+  - [task4, task5]
+  - task6
