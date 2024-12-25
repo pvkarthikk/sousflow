@@ -1,85 +1,8 @@
-
-#include <filesystem>
-#include <ctime>
-#include <regex>
-#ifdef _WIN32
-#include <windows.h>
-#include <direct.h>
-#define GetCurrentDir _getcwd
-#else
-#include <cstdlib>
-#include <unistd.h>
-#define GetCurrentDir getcwd
-extern char **environ;
-#endif
-
 #include <sousflow.h>
+#include <filesystem>
 #include <yaml-cpp/yaml.h>
-
+#include "utility.hpp"
 using namespace Sousflow;
-
-
-
-std::string get_current_dir() {
-    char buffer[FILENAME_MAX];
-    if (GetCurrentDir(buffer, FILENAME_MAX)) {
-        return std::string(buffer);
-    } else {
-        return std::string();
-    }
-}
-
-std::string get_time(){
-  // Example of the very popular RFC 3339 format UTC time
-    std::time_t time = std::time({});
-    char timeString[std::size("yyyy_mm_ddThh_mm_ssZ")];
-    std::strftime(std::data(timeString), std::size(timeString),
-                  "%Y%b%d_%H%M%S", std::gmtime(&time));
-    return std::string(timeString);
-}
-TaskVariables get_env_map() {
-    TaskVariables env_map;
-
-#ifdef _WIN32
-    char* env_strings = GetEnvironmentStrings();
-    if (env_strings) {
-        char* current = env_strings;
-        while (*current) {
-            std::string env_entry(current);
-            size_t pos = env_entry.find('=');
-            if (pos != std::string::npos) {
-                std::string key = env_entry.substr(0, pos);
-                std::string value = env_entry.substr(pos + 1);
-                env_map[key] = value;
-            }
-            current += env_entry.size() + 1;
-        }
-        FreeEnvironmentStrings(env_strings);
-    }
-#else
-    for (char** current = environ; *current; ++current) {
-        std::string env_entry(*current);
-        size_t pos = env_entry.find('=');
-        if (pos != std::string::npos) {
-            std::string key = env_entry.substr(0, pos);
-            std::string value = env_entry.substr(pos + 1);
-            env_map[key] = value;
-        }
-    }
-#endif
-
-    return env_map;
-}
-std::string replace_variables(std::string input, TaskVariables variables){
-    std::string output_str = input;
-    for(auto variable:variables){
-        std::string key = variable.first;
-        std::string val = variable.second;
-        std::regex rexp("\\$\\{\\s*(" + key + ")\\s*\\}");
-        output_str = std::regex_replace(output_str,rexp,val);
-    }
-    return output_str;
-}
 
 bool is_task(std::string task_name, YAML::Node task_property){
     if (task_property.IsMap()) {
@@ -105,149 +28,123 @@ bool is_variable(std::string task_name, YAML::Node task_property){
     }
     return false;
 }
-TaskVariables parse_variable(YAML::Node task_property){
-    TaskVariables output;
-    for (YAML::const_iterator it_var = task_property.begin(); it_var != task_property.end(); ++it_var){
+std::map<std::string, std::string> parse_variable(YAML::Node variable_node){
+    std::map<std::string, std::string> output;
+    for (YAML::const_iterator it_var = variable_node.begin(); it_var != variable_node.end(); ++it_var){
         std::string var_name = it_var->first.as<std::string>();
         std::string var_val = it_var->second.as<std::string>();
         output[var_name] = var_val;
     }
     return output;
 }
-TaskNode parse_task(std::string task_name, YAML::Node task_property, SousflowTasks sousflow){
-    TaskNode output;
-    TaskVariables local = sousflow.variables;
-    local["name"] = task_name;
-    local["time"] = get_time();
-    output.name = task_name;
-    for (YAML::const_iterator it = task_property.begin();it != task_property.end(); ++it){
+Task parse_task(YAML::Node task_node){
+    Task out;
+    for (YAML::const_iterator it = task_node.begin();it != task_node.end(); ++it){
         std::string property_name = it->first.as<std::string>();
-        std::string property_value = it->second.as<std::string>();
         if(property_name == "cmd"){
-            output.task.cmd = replace_variables(property_value, local);
+            out.cmd = it->second.as<std::string>();
         }
         else if(property_name == "args"){
-            output.task.args = replace_variables(property_value, local);
+            out.args = it->second.as<std::string>();
         }
         else if(property_name == "log"){
-            output.task.log = replace_variables(property_value, local);
+            out.log = it->second.as<std::string>();
         }
         else if(property_name == "root"){
-            output.task.root = replace_variables(property_value, local);
+            out.root = it->second.as<std::string>();
         }
-        else{
-            // do nothing
-        }
-        if(output.task.root == ""){
-            output.task.root = ".";
-        }
-        std::filesystem::path _temp;
-        std::filesystem::path yml_dir_path(sousflow.yml_dir);
-        
-        _temp = yml_dir_path/std::filesystem::path(output.task.cmd);
-        output.task.cmd = std::filesystem::absolute(_temp).string();
-        
-        _temp = yml_dir_path/std::filesystem::path(output.task.root);
-        output.task.root = std::filesystem::absolute(_temp).string();
-        
-        if(output.task.log != ""){
-            _temp = yml_dir_path/std::filesystem::path(output.task.log);
-            output.task.log = std::filesystem::absolute(_temp).string();
-        }
-    }
-    return output;
-}
-TaskGroupNode parse_group(std::string grp_name, YAML::Node grp_property, SousflowTasks sousflow){
-    TaskGroupNode output;
-    output.name = grp_name;
-    for(unsigned int seq_index = 0;seq_index < grp_property.size();seq_index++){
-        YAML::Node   seq_node = grp_property[seq_index];
-        TaskNodes nodes;
-        if(seq_node.IsSequence()){  // parallel task
-            for(unsigned int ll_index = 0; ll_index < seq_node.size(); ll_index++){
-                YAML::Node   ll_node  = seq_node[ll_index];
-                std::string  ll_name  = ll_node.as<std::string>();
-                if(sousflow.tasks.is_available(ll_name)){
-                    TaskNode node = sousflow.tasks[ll_name];
-                    nodes.add(node);
+        else if(property_name == "env"){
+            if(it->second.IsMap()){
+                for (YAML::const_iterator it_env = it->second.begin();it_env != it->second.end(); ++it_env){
+                    std::string env_name = it_env->first.as<std::string>();
+                    std::string env_val = it_env->second.as<std::string>();
+                    out.env[env_name] = env_val;
                 }
-                else if(sousflow.groups.is_available(ll_name)){
-                    std::stringstream err;
-                    err << "Group task("<<ll_name<<") not allowed to parallelise";
-                    err << "inside another group("<<grp_name<<")";
-                    throw std::runtime_error(err.str());
-
-                }
-                else{
-                    std::stringstream err;
-                    err << "'"<<ll_name<<"'is missing or defined before '"<<grp_name<<"'";
-                    err << "inside another group("<<grp_name<<")";
-                    throw std::runtime_error(err.str());
-                }
-            }
-        }
-        else{                       // sequence task
-            std::string task_name = seq_node.as<std::string>();
-            if(sousflow.tasks.is_available(task_name)){
-                TaskNode node = sousflow.tasks[task_name];
-                nodes.add(node);
-            }
-            else if(sousflow.groups.is_available(task_name)){
-                TaskGroupNode node = sousflow.groups[task_name];
-                // for(TaskNodes tasks:node.group){
-                //     nodes.add(tasks);
-                // }
-                // nodes.add(node.group);
             }
             else{
-                std::stringstream err;
-                err << "'"<<task_name<<"'is missing or defined before '"<<grp_name<<"'";
-                err << "inside another group("<<grp_name<<")";
-                throw std::runtime_error(err.str());
+                throw std::runtime_error("Invalid env type");
             }
         }
-        if(nodes.size() != 0){
-            output.group.push_back(nodes);
+        else{
+            // do nothing
+        }        
+    }
+    return out;
+}
+TaskGroup parse_group(YAML::Node group_node){
+    TaskGroup out;
+    for(unsigned int seq_idx = 0;seq_idx < group_node.size();seq_idx++){
+        YAML::Node   seq_node = group_node[seq_idx];
+        if(seq_node.IsSequence()){
+            std::vector<std::string> ll_list;
+            for(unsigned int ll_idx = 0; ll_idx < seq_node.size(); ll_idx++){
+                YAML::Node   ll_node = seq_node[ll_idx];
+                std::string  name = ll_node.as<std::string>();
+                ll_list.push_back(name);
+            }
+            if(ll_list.size() > 0){
+                out.push_back(ll_list);
+            }
+        }
+        else{
+            std::string name = seq_node.as<std::string>();
+            out.push_back({name});
         }
     }
-    return output;
+    return out;
 }
-SousflowTasks parse(std::string yml_path_str){
-    SousflowTasks output;
-    // get absolute path from yml_path_str
-    output.yml_path = std::filesystem::absolute(yml_path_str).string();
-    // get yml directory path from yml_path_str
-    output.yml_dir  = std::filesystem::path(yml_path_str).parent_path().string();
-    // get environment map and update it TaskVariables
-    output.variables = get_env_map();
-    // update built-in variables cwd and yml_dir into TaskVariables 
-    output.variables["cwd"]= get_current_dir();
-    // parse yaml file
-    YAML::Node config = YAML::LoadFile(output.yml_path);
+TaskYml Sousflow::parse(std::string yml_path_str){
+    TaskYml out;
+    out.path = yml_path_str;
+    YAML::Node config = YAML::LoadFile(out.path);
     if(!config.IsMap()){
-        return output;
+        throw std::runtime_error("Invalid file type "+ out.path);
     }
-    // iterate each node
-    for (YAML::const_iterator it = config.begin(); it != config.end(); ++it) {
+    for(YAML::const_iterator it = config.begin(); it != config.end(); ++it){
         std::string name = it->first.as<std::string>();
         YAML::Node  property = it->second;
-        // parse variables if presents
         if(is_variable(name, property)){
-            TaskVariables user_variables = parse_variable(property);
-            output.variables.merge(user_variables);
+            std::map<std::string, std::string> user_variables = parse_variable(property);
+            out.variables.merge(user_variables);
         }
         else if(is_task(name, property)){
-            TaskNode _task = parse_task(name, property, output);
-            output.tasks.add(_task);
+            out.tasks[name] = parse_task(property);
         }
         else if(is_group(name, property)){
-            TaskGroupNode _group = parse_group(name, property, output);
-            output.groups.add(_group);
+            out.groups[name] = parse_group(property);
         }
         else{
             // do nothing
         }
     }
+    return out;
+}
+TaskYml Sousflow::post_parse(TaskYml yml){
+    TaskYml out = yml;
     
-    return output;
-}   
+    // update task variables
+    for(auto task:out.tasks){
+        std::string task_name = task.first;
+        Task task_obj = task.second;
+        std::map<std::string, std::string> local = Sousflow::Utility::get_environment_variables();
+        local.insert(out.variables.begin(), out.variables.end());
+        local["name"] = task_name;
+        local["time"] = Sousflow::Utility::get_time();
+        local["cwd"]  = Sousflow::Utility::get_cwd();
+        local["yml_dir"] = std::filesystem::path(out.path).parent_path().string();
+        task_obj.cmd = Sousflow::Utility::replace_variables(task_obj.cmd, local);
+        task_obj.args = Sousflow::Utility::replace_variables(task_obj.args, local);
+        task_obj.root = Sousflow::Utility::replace_variables(task_obj.root, local);
+        task_obj.log = Sousflow::Utility::replace_variables(task_obj.log, local);
+        out.tasks[task_name] = task_obj;
+    }
+    return out;
+}
+
+SousflowRunner::SousflowRunner(std::string yml_path_str){
+    this->m_yml = Sousflow::parse(yml_path_str);
+    this->m_yml = Sousflow::post_parse(this->m_yml);
+}
+void SousflowRunner::start(std::string name){
+
+}

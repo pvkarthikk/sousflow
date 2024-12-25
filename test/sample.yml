@@ -1,26 +1,34 @@
+variables:
+  project_name: sousflow
+  version: "1.0.0"
 task1:
-  cmd: task.exe
-  args: --run 10 
+  cmd: task
+  args: 10 100 0
+  env:
+    HTTP_PROXY: proxy.google.com:80
+    HTTPS_PROXY: proxy.google.com:80
 
 task2:
-  cmd: task.exe
-  args: --run 15
+  cmd: task
+  args: 20 100 0
+  log: ${project_name}_v${version}.log
 
 task3:
-  cmd: task.exe
-  args: --run 5
+  cmd: task
+  args: 30 100 0
+  log: ${name}.log
 
 task4:
-  cmd: task.exe
-  args: --run 8
+  cmd: task
+  args: 40 100 0
 
 task5:
-  cmd: task.exe
-  args: --run 7
+  cmd: task
+  args: 50 100 0
 
 task6:
-  cmd: task.exe
-  args: --run 19
+  cmd: task
+  args: 60 100 0
 # task1 ->  task2
 #           task3
 group1:

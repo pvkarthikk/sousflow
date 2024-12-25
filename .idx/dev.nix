@@ -9,12 +9,13 @@
     # pkgs.go
     # pkgs.python311
     # pkgs.python311Packages.pip
-    # pkgs.nodejs_20
+    # pkgs.nodejs_20g
     # pkgs.nodePackages.nodemon
     pkgs.cmakeMinimal
     pkgs.cmake
     pkgs.ninja
     pkgs.gcc
+    pkgs.gdb
   ];
 
   # Sets environment variables in the workspace

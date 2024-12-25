@@ -23,12 +23,13 @@ add_library(sousflow STATIC
 )
 target_include_directories(sousflow PUBLIC 
     include
-    ${yaml-cpp_SOURCE_DIRECTORY/include}
+    ${yaml-cpp_SOURCE_DIR}/include
 )
 target_link_libraries(sousflow PUBLIC 
     yaml-cpp::yaml-cpp
 )
 
+# add_executable(task test/task.cpp)
 
 enable_testing()
 add_test(NAME sousflow_test COMMAND sousflow_test)
@@ -36,7 +37,9 @@ add_test(NAME sousflow_test COMMAND sousflow_test)
 add_executable(sousflow_test 
     test/test_parser.cpp
 )
-target_link_libraries(sousflow_test PUBLIC sousflow)
+target_link_libraries(sousflow_test PUBLIC 
+    sousflow
+)
 target_include_directories(sousflow_test PUBLIC 
     include
     ${utest_SOURCE_DIR}
